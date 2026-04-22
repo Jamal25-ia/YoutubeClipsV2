@@ -7,6 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview"
+    "postinstall": "chmod +x node_modules/.bin/astro"
   },
   "keywords": [],
   "author": "",
