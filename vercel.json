@@ -3,10 +3,6 @@
   "builds": [
     {
       "src": "package.json",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "astro.config.mjs",
       "use": "@vercel/static-build"
     }
   ],
