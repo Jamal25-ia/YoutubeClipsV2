@@ -304,12 +304,6 @@
                     'onReady': (event) => {
                         isPlayerReady = true;
                         event.target.playVideo();
-                    },
-                    'onStateChange': (event) => {
-                        // Cuando termina, mostrar opciones de replay
-                        if (event.data === YT.PlayerState.ENDED) {
-                            // El loop manual no es necesario porque 'end' lo corta automáticamente
-                        }
                     }
                 }
             });
