@@ -1,7 +1,6 @@
 ---
 // Lógica de servidor (Astro)
 ---
-
 <html lang="es">
 <head>
     <meta charset="utf-8" />
@@ -10,10 +9,31 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         #ytPlayer { width: 100%; height: 100%; }
+        /* Centrar el reproductor cuando estamos en modo visualizador */
+        #viewerUI .ratio { max-width: 900px; margin: 0 auto; }
     </style>
 </head>
 <body class="bg-dark text-light">
-    <div class="container mt-5">
+
+    <!-- ========================================== -->
+    <!-- MODO VISUALIZADOR (Se muestra con enlace)  -->
+    <!-- ========================================== -->
+    <div id="viewerUI" class="container mt-5 d-none">
+        <div class="text-center mb-4">
+            <h1 id="clipTitle" class="display-5 fw-bold text-info"></h1>
+            <p class="text-secondary">Clip compartido de YouTube</p>
+        </div>
+        <div class="ratio ratio-16x9 bg-black shadow-lg rounded overflow-hidden">
+            <div id="ytPlayerViewer"></div>
+        </div>
+        <div id="viewerMsg" class="text-center mt-3 fw-bold"></div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- MODO CREADOR (Interfaz original)           -->
+    <!-- ========================================== -->
+    <div id="creatorUI" class="container mt-5">
         <h1 class="mb-4">YouTube Clipper MVP</h1>
 
         <div class="row mb-3">
@@ -38,6 +58,12 @@
                     <div class="card-body">
                         <h5 class="card-title">Crear Clip (Max 60s)</h5>
                         
+                        <!-- NUEVO: Campo para el título -->
+                        <div class="mb-3">
+                            <label class="form-label">Título del clip</label>
+                            <input type="text" id="clipTitleInput" class="form-control" placeholder="Ej: Golazo increíble" />
+                        </div>
+
                         <div class="mb-3">
                             <label class="form-label">Inicio (Start) - Segundos</label>
                             <div class="input-group">
@@ -75,14 +101,17 @@
     </div>
 
     <script>
-        let player;
-        let isPlayerReady = false;
+        let creatorPlayer;
+        let viewerPlayer;
+        let isCreatorPlayerReady = false;
         let previewInterval = null;
         let currentVideoId = null;
-        let autoPlayOnReady = false; // Bandera para auto-reproducir si viene de un enlace
 
+        // Elementos del DOM Creador
+        const creatorUI = document.getElementById('creatorUI');
         const videoUrlInput = document.getElementById('videoUrl');
         const loadVideoBtn = document.getElementById('loadVideoBtn');
+        const clipTitleInput = document.getElementById('clipTitleInput');
         const startTimeInput = document.getElementById('startTime');
         const endTimeInput = document.getElementById('endTime');
         const setStartBtn = document.getElementById('setStartBtn');
@@ -94,14 +123,18 @@
         const shareLinkInput = document.getElementById('shareLink');
         const copyLinkBtn = document.getElementById('copyLinkBtn');
 
+        // Elementos del DOM Visualizador
+        const viewerUI = document.getElementById('viewerUI');
+        const clipTitle = document.getElementById('clipTitle');
+        const viewerMsg = document.getElementById('viewerMsg');
+
         // Cargar API de YouTube
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         document.head.appendChild(tag);
 
         window.onYouTubeIframeAPIReady = () => {
-            console.log("API de YouTube Lista");
-            // Verificar si la URL tiene parámetros al cargar la página
+            // Al cargar la página, revisar si es un enlace compartido
             checkUrlForClip();
         };
 
@@ -111,38 +144,31 @@
             return (match && match[2].length === 11) ? match[2] : null;
         }
 
-        // Función unificada para cargar el video en el reproductor
-        function loadVideoById(id, autoPlay = false) {
+        // ==========================================
+        // LÓGICA MODO CREADOR
+        // ==========================================
+        function loadVideoById(id) {
             currentVideoId = id;
-            autoPlayOnReady = autoPlay;
             shareLinkContainer.classList.add('d-none');
 
-            if (player && isPlayerReady) {
-                player.loadVideoById(id);
-                if (autoPlay) runPreview();
+            if (creatorPlayer && isCreatorPlayerReady) {
+                creatorPlayer.loadVideoById(id);
             } else {
-                player = new YT.Player('ytPlayer', {
+                creatorPlayer = new YT.Player('ytPlayer', {
                     videoId: id,
-                    playerVars: { 'playsinline': 1, 'modestbranding': 1, 'autoplay': autoPlay ? 1 : 0 },
+                    playerVars: { 'playsinline': 1, 'modestbranding': 1 },
                     events: {
                         'onReady': () => {
-                            isPlayerReady = true;
+                            isCreatorPlayerReady = true;
                             previewBtn.disabled = false;
                             previewBtn.innerText = "Previsualizar Clip";
                             generateBtn.disabled = false;
-                            
-                            // Si venía de un enlace compartido, reproducir el clip
-                            if (autoPlayOnReady) {
-                                runPreview();
-                                autoPlayOnReady = false;
-                            }
                         }
                     }
                 });
             }
         }
 
-        // Cargar video desde el botón
         loadVideoBtn.addEventListener('click', () => {
             const url = videoUrlInput.value;
             const videoId = getYoutubeId(url);
@@ -151,105 +177,125 @@
                 return;
             }
             resultMsg.innerHTML = ''; 
-            loadVideoById(videoId, false);
+            loadVideoById(videoId);
         });
 
-        // Capturar tiempos
-        setStartBtn.addEventListener('click', () => {
-            if (!isPlayerReady) return;
-            startTimeInput.value = Math.round(player.getCurrentTime());
-        });
+        setStartBtn.addEventListener('click', () => { if (isCreatorPlayerReady) startTimeInput.value = Math.round(creatorPlayer.getCurrentTime()); });
+        setEndBtn.addEventListener('click', () => { if (isCreatorPlayerReady) endTimeInput.value = Math.round(creatorPlayer.getCurrentTime()); });
 
-        setEndBtn.addEventListener('click', () => {
-            if (!isPlayerReady) return;
-            endTimeInput.value = Math.round(player.getCurrentTime());
-        });
-
-        // Lógica de reproducción del clip (reutilizable)
-        function runPreview() {
+        previewBtn.addEventListener('click', () => {
+            if (!isCreatorPlayerReady) return;
             const start = parseInt(startTimeInput.value) || 0;
             const end = parseInt(endTimeInput.value) || 0;
 
-            if (end - start > 60) {
-                resultMsg.innerHTML = '<span class="text-danger">Error: El clip no puede durar más de 60 segundos.</span>';
-                return;
-            }
-            if (end <= start) {
-                resultMsg.innerHTML = '<span class="text-danger">Error: El tiempo de fin debe ser mayor al de inicio.</span>';
+            if (end - start > 60 || end <= start) {
+                resultMsg.innerHTML = '<span class="text-danger">Error: Revisa los tiempos (Max 60s y Fin > Inicio).</span>';
                 return;
             }
 
             resultMsg.innerHTML = '<span class="text-info">Reproduciendo clip...</span>';
-
             if (previewInterval) clearInterval(previewInterval);
 
-            player.seekTo(start, true);
-            player.playVideo();
+            creatorPlayer.seekTo(start, true);
+            creatorPlayer.playVideo();
 
             previewInterval = setInterval(() => {
-                if (player.getCurrentTime() >= end) {
-                    player.pauseVideo();
+                if (creatorPlayer.getCurrentTime() >= end) {
+                    creatorPlayer.pauseVideo();
                     clearInterval(previewInterval);
                     previewInterval = null;
                     resultMsg.innerHTML = '<span class="text-light">Clip terminado.</span>';
                 }
             }, 100);
-        }
-
-        // Botón previsualizar
-        previewBtn.addEventListener('click', () => {
-            if (!isPlayerReady) return;
-            runPreview();
         });
 
-        // Generar Enlace Compartible interno
         generateBtn.addEventListener('click', () => {
             const start = parseInt(startTimeInput.value) || 0;
             const end = parseInt(endTimeInput.value) || 0;
+            const title = clipTitleInput.value.trim() || "Clip de YouTube";
 
             if (end - start > 60 || end <= start) {
                 resultMsg.innerHTML = '<span class="text-danger">Revisa los tiempos. Max 60s.</span>';
                 return;
             }
 
-            // Construir URL base de la página actual
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('v', currentVideoId);
-            currentUrl.searchParams.set('start', start);
-            currentUrl.searchParams.set('end', end);
-            
-            // Limpiar parámetros basura previos si los hubiera
-            const shareUrl = currentUrl.origin + currentUrl.pathname + `?v=${currentVideoId}&start=${start}&end=${end}`;
+            // Generar URL limpia con el título codificado
+            const baseUrl = window.location.origin + window.location.pathname;
+            const shareUrl = `${baseUrl}?v=${currentVideoId}&start=${start}&end=${end}&title=${encodeURIComponent(title)}`;
 
             shareLinkInput.value = shareUrl;
             shareLinkContainer.classList.remove('d-none');
             resultMsg.innerHTML = '<span class="text-success">¡Enlace generado! Compártelo.</span>';
         });
 
-        // Copiar enlace
         copyLinkBtn.addEventListener('click', () => {
-            shareLinkInput.select();
-            document.execCommand('copy');
-            resultMsg.innerHTML = '<span class="text-success">¡Copiado al portapapeles!</span>';
+            navigator.clipboard.writeText(shareLinkInput.value).then(() => {
+                resultMsg.innerHTML = '<span class="text-success">¡Copiado al portapapeles!</span>';
+            });
         });
 
-        // --- LÓGICA DE ENTRADA POR URL COMPARTIDA ---
+        // ==========================================
+        // LÓGICA MODO VISUALIZADOR (ENLACE COMPARTIDO)
+        // ==========================================
         function checkUrlForClip() {
             const params = new URLSearchParams(window.location.search);
             const videoId = params.get('v');
-            const start = params.get('start');
-            const end = params.get('end');
+            const start = parseInt(params.get('start')) || 0;
+            const end = parseInt(params.get('end')) || 0;
+            const title = params.get('title');
 
-            if (videoId && start && end) {
-                // Rellenar los inputs
-                videoUrlInput.value = `https://youtu.be/${videoId}`;
-                startTimeInput.value = start;
-                endTimeInput.value = end;
+            if (videoId && start !== 0 && end !== 0) {
+                // Cambiar de interfaz
+                creatorUI.classList.add('d-none');
+                viewerUI.classList.remove('d-none');
                 
-                // Cargar y auto-reproducir
-                loadVideoById(videoId, true);
+                // Poner el título arriba
+                clipTitle.innerText = decodeURIComponent(title || "Clip de YouTube");
+                document.title = decodeURIComponent(title || "Clip de YouTube");
+
+                // Iniciar reproductor bloqueado
+                viewerPlayer = new YT.Player('ytPlayerViewer', {
+                    videoId: videoId,
+                    playerVars: { 
+                        'playsinline': 1, 
+                        'autoplay': 1, 
+                        'start': start,
+                        'controls': 0,      // Oculta controles de YT
+                        'disablekb': 1,     // Desactiva teclado
+                        'fs': 0,            // Quita botón de pantalla completa
+                        'modestbranding': 1,
+                        'rel': 0            // No muestra videos relacionados al final
+                    },
+                    events: {
+                        'onReady': (event) => {
+                            enforceViewerClip(start, end);
+                        },
+                        'onStateChange': (event) => {
+                            // Si el usuario intenta adelantar/retroceder de forma fraudulenta, lo regresamos
+                            if (event.data === YT.PlayerState.PLAYING) {
+                                enforceViewerClip(start, end);
+                            }
+                        }
+                    }
+                });
             }
         }
+
+        // Función estricta para que SOLO se reproduzca el fragmento
+        function enforceViewerClip(start, end) {
+            if (viewerInterval) clearInterval(viewerInterval);
+            
+            viewerInterval = setInterval(() => {
+                const currentTime = viewerPlayer.getCurrentTime();
+                if (currentTime < start - 0.5 || currentTime >= end) {
+                    viewerPlayer.pauseVideo();
+                    viewerPlayer.seekTo(start, true);
+                    clearInterval(viewerInterval);
+                    viewerMsg.innerHTML = '<span class="text-warning">El clip ha terminado. <a href="#" onclick="location.reload()" class="text-info">Repetir</a></span>';
+                }
+            }, 50); // Intervalo rápido (50ms) para evitar saltos
+        }
     </script>
+    <!-- Creado por Jamal25-ia-->
 </body>
 </html>
