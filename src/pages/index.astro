@@ -5,7 +5,7 @@
 <html lang="es">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>YouTube Clipper</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -30,6 +30,76 @@
             border-radius: 50px;
             padding: 12px 24px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        /* ==================== PANTALLA DE INICIO PARA MÓVIL ==================== */
+        #mobileStartOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.4s ease, visibility 0.4s ease;
+        }
+
+        #mobileStartOverlay.hidden-overlay {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .start-overlay-content {
+            text-align: center;
+            padding: 2rem;
+            max-width: 90%;
+        }
+
+        .start-overlay-content h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .start-overlay-content p {
+            color: #adb5bd;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+
+        .btn-play-giant {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #dc3545;
+            border: 3px solid rgba(255,255,255,0.2);
+            color: white;
+            font-size: 2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 30px rgba(220, 53, 69, 0.4);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-play-giant:active {
+            transform: scale(0.92);
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        /* Ocultar overlay en desktop (autoplay funciona) */
+        @media (min-width: 992px) {
+            #mobileStartOverlay {
+                display: none !important;
+            }
         }
     </style>
 </head>
@@ -125,7 +195,7 @@
         <!-- Video centrado y grande -->
         <div class="container">
             <div class="row justify-content-center">
-                <div class="col-12 col-lg-10 col-xl-8">
+                <div class="col-12 col-lg-10 col-xl-8 position-relative">
                     <div class="ratio ratio-16x9 bg-black rounded-3 overflow-hidden shadow-lg">
                         <div id="ytPlayerViewer"></div>
                     </div>
@@ -149,6 +219,18 @@
         <button id="editFab" class="btn btn-danger edit-fab player-only">
             <i class="bi bi-pencil"></i> Editar
         </button>
+
+        <!-- ==================== OVERLAY MÓVIL: TOCAR PARA REPRODUCIR ==================== -->
+        <div id="mobileStartOverlay" class="d-none">
+            <div class="start-overlay-content">
+                <h2 id="overlayTitle">Clip de YouTube</h2>
+                <p id="overlayTime">0:00 - 0:00</p>
+                <button id="overlayPlayBtn" class="btn-play-giant">
+                    <i class="bi bi-play-fill"></i>
+                </button>
+                <p class="mt-3 text-muted small">Toca para reproducir con sonido</p>
+            </div>
+        </div>
     </div>
 
     <!-- Bootstrap Icons -->
@@ -162,6 +244,7 @@
         let currentVideoId = null;
         let autoPlayOnReady = false;
         let currentMode = 'editor'; // 'editor' o 'player'
+        let pendingClipData = null; // Datos del clip esperando interacción en móvil
 
         // Elementos del DOM - Editor
         const editorModeDiv = document.getElementById('editorMode');
@@ -186,6 +269,18 @@
         const replayBtn = document.getElementById('replayBtn');
         const goToEditorBtn = document.getElementById('goToEditorBtn');
         const editFab = document.getElementById('editFab');
+
+        // Elementos del DOM - Overlay Móvil
+        const mobileStartOverlay = document.getElementById('mobileStartOverlay');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const overlayTime = document.getElementById('overlayTime');
+        const overlayPlayBtn = document.getElementById('overlayPlayBtn');
+
+        // ==================== DETECCIÓN DE DISPOSITIVO ====================
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                || window.innerWidth < 992;
+        }
 
         // ==================== INICIALIZACIÓN ====================
         const tag = document.createElement('script');
@@ -225,6 +320,10 @@
             editorModeDiv.classList.remove('d-none');
             document.body.classList.remove('player-mode');
             document.body.classList.add('editor-mode');
+
+            // Ocultar overlay si estaba visible
+            mobileStartOverlay.classList.add('d-none');
+            mobileStartOverlay.classList.remove('hidden-overlay');
 
             // Si venimos del reproductor con datos, pre-rellenar
             if (videoId) {
@@ -283,14 +382,34 @@
             playerTitle.textContent = title || 'Clip sin título';
             timeRange.textContent = `${formatTime(start)} - ${formatTime(end)}`;
 
-            // Destruir player anterior si existe
+            // Actualizar overlay
+            overlayTitle.textContent = title || 'Clip de YouTube';
+            overlayTime.textContent = `${formatTime(start)} - ${formatTime(end)}`;
+
+            // Guardar datos por si necesitamos recrear el player tras interacción
+            pendingClipData = { id, start, end, title };
+
+            // En móvil: mostrar overlay y NO crear el player aún (o crearlo muted)
+            if (isMobileDevice()) {
+                mobileStartOverlay.classList.remove('d-none');
+                
+                // Precargar el player muted para que esté listo (opcional, mejora UX)
+                // pero el verdadero play con sonido vendrá tras el click
+                createPlayerForMobile(id, start, end);
+            } else {
+                // Desktop: autoplay normal con sonido
+                mobileStartOverlay.classList.add('d-none');
+                createPlayerForDesktop(id, start, end);
+            }
+        }
+
+        function createPlayerForDesktop(id, start, end) {
             if (player) {
                 player.destroy();
                 player = null;
                 isPlayerReady = false;
             }
 
-            // Crear nuevo player en el contenedor del viewer
             player = new YT.Player('ytPlayerViewer', {
                 videoId: id,
                 playerVars: {
@@ -298,27 +417,94 @@
                     'modestbranding': 1,
                     'autoplay': 1,
                     'start': start,
-                    'end': end,
-                    'mute': 1 // Silenciar el video al principio
+                    'end': end
                 },
                 events: {
                     'onReady': (event) => {
                         isPlayerReady = true;
                         event.target.playVideo();
-
-                        setTimeout(() => {
-                            try {
-                                event.target.unMute();
-                                event.target.setVolume(100);
-                            } catch (e) {
-                                console.log("Unmute bloqueado por el navegador");
-                            }
-                        }, 800);
                     }
                 }
             });
         }
 
+        function createPlayerForMobile(id, start, end) {
+            if (player) {
+                player.destroy();
+                player = null;
+                isPlayerReady = false;
+            }
+
+            // Crear player inicialmente muted (autoplay permitido en móvil solo si muted)
+            player = new YT.Player('ytPlayerViewer', {
+                videoId: id,
+                playerVars: {
+                    'playsinline': 1,
+                    'modestbranding': 1,
+                    'autoplay': 1,
+                    'mute': 1,
+                    'start': start,
+                    'end': end
+                },
+                events: {
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                        event.target.playVideo();
+                    }
+                }
+            });
+        }
+
+        // ==================== INICIAR REPRODUCCIÓN CON SONIDO (MÓVIL) ====================
+        function startPlaybackWithSound() {
+            if (!pendingClipData) return;
+
+            const { id, start, end, title } = pendingClipData;
+
+            // Ocultar overlay con animación
+            mobileStartOverlay.classList.add('hidden-overlay');
+
+            // Si el player ya existe, simplemente unmute y seek
+            if (player && isPlayerReady) {
+                try {
+                    player.unMute();
+                    player.setVolume(100);
+                    player.seekTo(start, true);
+                    player.playVideo();
+                } catch (e) {
+                    console.log("Error al unmute:", e);
+                    // Fallback: recrear el player
+                    recreatePlayerUnmuted(id, start, end);
+                }
+            } else {
+                recreatePlayerUnmuted(id, start, end);
+            }
+        }
+
+        function recreatePlayerUnmuted(id, start, end) {
+            if (player) {
+                player.destroy();
+                player = null;
+                isPlayerReady = false;
+            }
+
+            player = new YT.Player('ytPlayerViewer', {
+                videoId: id,
+                playerVars: {
+                    'playsinline': 1,
+                    'modestbranding': 1,
+                    'autoplay': 1,
+                    'start': start,
+                    'end': end
+                },
+                events: {
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                        event.target.playVideo();
+                    }
+                }
+            });
+        }
 
         // ==================== LÓGICA DEL EDITOR ====================
         loadVideoBtn.addEventListener('click', () => {
@@ -435,6 +621,16 @@
 
         editFab.addEventListener('click', () => {
             goToEditorBtn.click();
+        });
+
+        // ==================== OVERLAY MÓVIL: EVENTOS ====================
+        overlayPlayBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startPlaybackWithSound();
+        });
+
+        mobileStartOverlay.addEventListener('click', () => {
+            startPlaybackWithSound();
         });
 
         // ==================== DETECCIÓN DE URL COMPARTIDA ====================
