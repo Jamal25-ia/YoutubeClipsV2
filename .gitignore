@@ -3,3 +3,4 @@ node_modules/
 package-lock.json   # <-- ignóralo, deja que Vercel genere el suyo
 .astro/
 dist/
+package-lock.json
