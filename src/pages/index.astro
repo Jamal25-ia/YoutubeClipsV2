@@ -298,16 +298,27 @@
                     'modestbranding': 1,
                     'autoplay': 1,
                     'start': start,
-                    'end': end
+                    'end': end,
+                    'mute': 1 // Silenciar el video al principio
                 },
                 events: {
                     'onReady': (event) => {
                         isPlayerReady = true;
                         event.target.playVideo();
+
+                        setTimeout(() => {
+                            try {
+                                event.target.unMute();
+                                event.target.setVolume(100);
+                            } catch (e) {
+                                console.log("Unmute bloqueado por el navegador");
+                            }
+                        }, 800);
                     }
                 }
             });
         }
+
 
         // ==================== LÓGICA DEL EDITOR ====================
         loadVideoBtn.addEventListener('click', () => {
