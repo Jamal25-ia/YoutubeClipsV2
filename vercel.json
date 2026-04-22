@@ -1,5 +1,16 @@
 {
-  "framework": "astro",
-  "installCommand": "npm install --no-package-lock",
-  "buildCommand": "npx astro build"
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "astro.config.mjs",
+      "use": "@vercel/static-build"
+    }
+  ],
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
 }
