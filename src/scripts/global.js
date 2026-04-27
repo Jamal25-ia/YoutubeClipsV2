@@ -415,6 +415,12 @@
 
             // Cambiar a modo reproductor y cargar
             switchToPlayerMode();
+            if (player) {
+                player.destroy();
+                player = null;
+            }
+
+            isPlayerReady = false;
             loadVideoInPlayer(videoId, start, end, decodedTitle);
         } else {
             // MODO EDITOR: Entrada normal
